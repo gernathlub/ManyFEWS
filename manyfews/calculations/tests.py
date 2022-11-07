@@ -1,5 +1,7 @@
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 import os
+import pprint
 
 from django.contrib.auth.models import User
 from django.contrib.gis.geos import MultiPolygon, Point, Polygon
@@ -8,6 +10,8 @@ import numpy as np
 import xlrd
 from unittest import mock
 
+from .bulk_create_manager import BulkCreateManager
+
 from webapp.models import UserAlert, UserPhoneNumber, AlertType
 from .alerts import send_phone_alerts_for_user
 from .flood_risk import predict_depth, predict_depths
@@ -15,6 +19,7 @@ from .models import (
     DepthPrediction,
     FloodModelParameters,
     ModelVersion,
+    PercentageFloodRisk,
     RiverChannel,
     ZentraDevice,
     ZentraReading,
@@ -384,3 +389,89 @@ class FloodCalculationTests(TestCase):
             predict_depths(self.test_date, dummy_param_list, None)
 
         self.assertEqual(DepthPrediction.objects.filter(date=self.test_date).count(), 4)
+
+
+class BulkManagerTest(TestCase):
+    def test_init(self):
+        test_chunk_size = 205
+        bulk_maneger = BulkCreateManager(chunk_size=test_chunk_size)
+        self.assertEqual(bulk_maneger.chunk_size, test_chunk_size)
+        self.assertEqual(bulk_maneger._create_queues, defaultdict(list))
+
+    def test_add_single(self):
+        test_chunk_size = 2
+        bulk_manager = BulkCreateManager(chunk_size=test_chunk_size)
+        self.assertEqual(len(bulk_manager._create_queues.keys()), 0)
+        bulk_manager.add(RiverChannel())
+        self.assertEqual(len(bulk_manager._create_queues.keys()), 1)
+        self.assertEqual(
+            len(bulk_manager._create_queues["calculations.RiverChannel"]), 1
+        )
+        self.assertEqual(
+            RiverChannel,
+            type(bulk_manager._create_queues["calculations.RiverChannel"][0]),
+        )
+
+    def test_commit(self):
+        test_chunk_size = 2
+        bulk_manager = BulkCreateManager(chunk_size=test_chunk_size)
+        bulk_manager.add(RiverChannel())
+        self.assertFalse(RiverChannel.objects.all().exists())
+
+        bulk_manager._commit(RiverChannel)
+
+        self.assertEqual(len(bulk_manager._create_queues.keys()), 1)
+        self.assertEqual(
+            len(bulk_manager._create_queues["calculations.RiverChannel"]), 0
+        )
+        self.assertTrue(RiverChannel.objects.all().exists())
+
+    def test_add_multiple(self):
+        test_chunk_size = 2
+        bulk_manager = BulkCreateManager(chunk_size=test_chunk_size)
+        self.assertEqual(len(bulk_manager._create_queues[RiverChannel]), 0)
+        bulk_manager.add(RiverChannel())
+
+        self.assertEqual(
+            len(bulk_manager._create_queues["calculations.RiverChannel"]), 1
+        )
+        bulk_manager.add(RiverChannel())
+        self.assertEqual(
+            len(bulk_manager._create_queues["calculations.RiverChannel"]), 0
+        )
+        bulk_manager.add(RiverChannel())
+
+        self.assertEqual(len(bulk_manager._create_queues.keys()), 2)
+        self.assertEqual(
+            len(bulk_manager._create_queues["calculations.RiverChannel"]), 1
+        )
+
+        self.assertEqual(RiverChannel.objects.all().count(), 2)
+
+    def test_done(self):
+        test_chunk_size = 2
+        bulk_manager = BulkCreateManager(chunk_size=test_chunk_size)
+        self.assertEqual(len(bulk_manager._create_queues.keys()), 0)
+        bulk_manager.add(RiverChannel())
+        bulk_manager.add(PercentageFloodRisk(date=datetime.now(), risk=0.2))
+
+        self.assertEqual(len(bulk_manager._create_queues.keys()), 2)
+        self.assertEqual(
+            len(bulk_manager._create_queues["calculations.RiverChannel"]), 1
+        )
+        self.assertEqual(
+            len(bulk_manager._create_queues["calculations.PercentageFloodRisk"]), 1
+        )
+        self.assertEqual(RiverChannel.objects.all().count(), 0)
+        self.assertEqual(PercentageFloodRisk.objects.all().count(), 0)
+        bulk_manager.done()
+        self.assertEqual(len(bulk_manager._create_queues.keys()), 2)
+        self.assertEqual(
+            len(bulk_manager._create_queues["calculations.RiverChannel"]), 0
+        )
+        self.assertEqual(
+            len(bulk_manager._create_queues["calculations.PercentageFloodRisk"]), 0
+        )
+
+        self.assertEqual(RiverChannel.objects.all().count(), 1)
+        self.assertEqual(PercentageFloodRisk.objects.all().count(), 1)
