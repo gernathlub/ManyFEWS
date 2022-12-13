@@ -5,7 +5,7 @@ services:
   # RabbitMQ message queue service for Celery task broker
   rabbitmq:
     image: rabbitmq:3.10
-    container_name: ${COMPOSE_PROJECT_NAME}_rabbitmq
+    container_name: ${COMPOSE_PROJECT_NAME}rabbitmq
     restart: always
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
@@ -19,7 +19,7 @@ services:
   # PostGIS server
   postgres:
     image: postgis/postgis:14-3.2
-    container_name: ${COMPOSE_PROJECT_NAME}_postgres
+    container_name: ${COMPOSE_PROJECT_NAME}postgres
     restart: always
     environment:
       # must specify password for PG Docker container image, see: https://registry.hub.docker.com/_/postgres?tab=description&page=1&name=10
@@ -44,7 +44,7 @@ services:
 
   # Celery container runs from the same image as the django container below
   celery:
-    container_name: ${COMPOSE_PROJECT_NAME}_celery
+    container_name: ${COMPOSE_PROJECT_NAME}celery
     build:
       context: .
       target: celery
@@ -83,7 +83,7 @@ services:
   # docker exec -it <container_id> /bin/bash
   # Use `docker ps` to find the <container_id>
   gunicorn:
-    container_name: ${COMPOSE_PROJECT_NAME}_gunicorn
+    container_name: ${COMPOSE_PROJECT_NAME}gunicorn
     build:
       context: .
       target: gunicorn
@@ -105,7 +105,7 @@ services:
     build:
       context: .
       target: web
-    container_name: ${COMPOSE_PROJECT_NAME}_nginx
+    container_name: ${COMPOSE_PROJECT_NAME}nginx
     restart: always
     depends_on:
       - gunicorn
@@ -123,8 +123,4 @@ networks:
 
 volumes:
   postgresql:
-    driver_opts:
-      type: none
-      device: ${PWD}/volumes/postgres
-      o: bind
   uploads:
